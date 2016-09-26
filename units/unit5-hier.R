@@ -10,6 +10,52 @@ lines(x, dnorm(x, 1, 2), col = 'red')
 sum(dnorm(y, 1, 0.5, log = TRUE))
 sum(dnorm(y, 1, 2, log = TRUE))
 
+## @knitr occams-razor
+
+sigma <- 1
+n <- 10
+J <- 6
+mu <- 2
+tauSmall <- 0.1
+tauLarge <- 3
+
+### scenario 1 - little variation in theta ###
+theta <- rnorm(J, mu, tauSmall)
+ybar <- rnorm(J, theta, sigma/sqrt(n))
+
+# pooled estimation with small tau
+thetaHat <- (ybar/sigma^2 + mu/tauSmall^2) / (1/sigma^2 + 1/tauSmall^2)
+ll <- sum(dnorm(ybar, thetaHat, sigma/sqrt(n), log = TRUE))  # log-lik
+lp <- sum(dnorm(thetaHat, mu, tauSmall, log = TRUE))             # log-prior
+c(ll, lp, ll+lp)
+
+# pooled estimation with large tau
+thetaHat <- (ybar/sigma^2 + mu/tauLarge^2) / (1/sigma^2 + 1/tauLarge^2)
+ll <- sum(dnorm(ybar, thetaHat, sigma/sqrt(n), log = TRUE))  # log-lik
+lp <- sum(dnorm(thetaHat, mu, tauLarge, log = TRUE))             # log-prior
+c(ll, lp, ll+lp)
+
+# conclusion: complexity penalty favors pooling (simpler model) here because improvement in likelihood with more complicated model is small
+
+### scenario 2 - large variation in theta ###
+theta <- rnorm(J, mu, tauLarge)
+ybar <- rnorm(J, theta, sigma/sqrt(n))
+
+# pooled estimation with small tau
+thetaHat <- (ybar/sigma^2 + mu/tauSmall^2) / (1/sigma^2 + 1/tauSmall^2)
+ll <- sum(dnorm(ybar, thetaHat, sigma/sqrt(n), log = TRUE))  # log-lik
+lp <- sum(dnorm(thetaHat, mu, tauSmall, log = TRUE))             # log-prior
+c(ll, lp, ll+lp)
+
+# pooled estimation with large tau
+thetaHat <- (ybar/sigma^2 + mu/tauLarge^2) / (1/sigma^2 + 1/tauLarge^2)
+ll <- sum(dnorm(ybar, thetaHat, sigma/sqrt(n), log = TRUE))  # log-lik
+lp <- sum(dnorm(thetaHat, mu, tauLarge, log = TRUE))             # log-prior
+c(ll, lp, ll+lp)
+
+# conclusion: data do not allow pooling and overwhelm the prior's preference for a simpler model
+
+
 ## @knitr ig-prior
 
 
