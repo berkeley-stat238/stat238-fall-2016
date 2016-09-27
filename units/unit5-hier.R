@@ -12,6 +12,9 @@ sum(dnorm(y, 1, 2, log = TRUE))
 
 ## @knitr occams-razor
 
+# illustration of how hierarchical specification favors simpler models
+#  if the data allow it
+
 sigma <- 1
 n <- 10
 J <- 6
@@ -23,13 +26,13 @@ tauLarge <- 3
 theta <- rnorm(J, mu, tauSmall)
 ybar <- rnorm(J, theta, sigma/sqrt(n))
 
-# pooled estimation with small tau
+# pooled estimation with small tau (almost complete pooling)
 thetaHat <- (ybar/sigma^2 + mu/tauSmall^2) / (1/sigma^2 + 1/tauSmall^2)
 ll <- sum(dnorm(ybar, thetaHat, sigma/sqrt(n), log = TRUE))  # log-lik
 lp <- sum(dnorm(thetaHat, mu, tauSmall, log = TRUE))             # log-prior
 c(ll, lp, ll+lp)
 
-# pooled estimation with large tau
+# pooled estimation with large tau (limited pooling)
 thetaHat <- (ybar/sigma^2 + mu/tauLarge^2) / (1/sigma^2 + 1/tauLarge^2)
 ll <- sum(dnorm(ybar, thetaHat, sigma/sqrt(n), log = TRUE))  # log-lik
 lp <- sum(dnorm(thetaHat, mu, tauLarge, log = TRUE))             # log-prior
@@ -41,13 +44,13 @@ c(ll, lp, ll+lp)
 theta <- rnorm(J, mu, tauLarge)
 ybar <- rnorm(J, theta, sigma/sqrt(n))
 
-# pooled estimation with small tau
+# pooled estimation with small tau (almost complete pooling)
 thetaHat <- (ybar/sigma^2 + mu/tauSmall^2) / (1/sigma^2 + 1/tauSmall^2)
 ll <- sum(dnorm(ybar, thetaHat, sigma/sqrt(n), log = TRUE))  # log-lik
 lp <- sum(dnorm(thetaHat, mu, tauSmall, log = TRUE))             # log-prior
 c(ll, lp, ll+lp)
 
-# pooled estimation with large tau
+# pooled estimation with large tau (limited pooling)
 thetaHat <- (ybar/sigma^2 + mu/tauLarge^2) / (1/sigma^2 + 1/tauLarge^2)
 ll <- sum(dnorm(ybar, thetaHat, sigma/sqrt(n), log = TRUE))  # log-lik
 lp <- sum(dnorm(thetaHat, mu, tauLarge, log = TRUE))             # log-prior
@@ -58,6 +61,8 @@ c(ll, lp, ll+lp)
 
 ## @knitr ig-prior
 
+# illustrating wacky behavior of the IG(eps, eps) prior
+#   this prior is NOT recommended for variance components, particularly for random effects variances
 
 par(mfrow = c(1,3),mai = c(.5,.5,.3,.1),mgp = c(2.2,0.8,0))
 alpha = beta = .001
@@ -73,8 +78,13 @@ plot(x3,f3,type = 'l',xlab = expression(tau^2),ylab = expression(pi(tau^2)),main
 
 ## @knitr ig-sensitivity
 
-# NOTE: should try to use log scale samplers for tau and tau2 when model has sd or var not prec
+# some illustrations of sensitivity of posterior to prior specification with
+#   IG priors for random effects variance term
+#   when there is little or no variation in the random effects
 
+# likely not demonstrated in class but might be shown in Unit 6 on computation
+
+library(nimble)
 J <- 10
 n <- 10
 sigma <- 1
@@ -108,15 +118,15 @@ tsplot(smp1[postBurn, 'tau'])
 hist(smp1[postBurn, 'tau'], ncl = 100)
 hist(smp1[postBurn, 'tau'], ncl = 100, xlim = c(0,.2))
 
-# use user-defined IG?
+# NIMBLE (for now) and JAGS/BUGS do not have an IG distribution
+# could easily write an inverse-gamma distribution as a user-defined distribution in NIMBLE
 code_igeps <- nimbleCode({
     for(j in 1:J) {
         for(i in 1:n[j]) {
             y[i,j] ~ dnorm(theta[j], sd = sigma)
         }
-        theta[j] ~ dnorm(mu, var = tau2)
+        theta[j] ~ dnorm(mu, itau2)
     }
-    tau2 <- 1/itau2
     itau2 ~ dgamma(eps, eps)
     sigma ~ dunif(0, 1000)
     mu ~ dnorm(0, sd = 1000)
@@ -126,8 +136,8 @@ m <- nimbleModel(code_igeps, data = list(y = y), constants = list(n = rep(n, J),
                  inits = list(eps = .001, mu = 1, sigma = 0.5, itau2 = 1))
 cm <- compileNimble(m)
 conf <- configureMCMC(m)
-conf$removeSamplers('tau2')
-conf$addSampler('tau2', control = list(log = TRUE))
+#conf$removeSamplers('tau2')
+#conf$addSampler('tau2', control = list(log = TRUE))
 mcmc <- buildMCMC(conf)
 cmcmc <- compileNimble(mcmc, project = m)
 cmcmc$run(nIts)
