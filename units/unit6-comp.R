@@ -4,6 +4,9 @@ w <- c(1.6907, 1.7242, 1.7552, 1.7842, 1.8113, 1.8369, 1.8610, 1.8839)
 y <- c(6, 13, 18, 28, 52, 53, 61, 60)
 n <- c(59, 60, 62, 56, 63, 59, 62, 60)
 
+# for use later as 'y' will be overwritten in the interim
+bliss <- list(w = w, y = y, n = n)
+
 logLik <- function(theta){
   m1 <- exp(theta[3])
   sigma <- exp(theta[2])
@@ -154,6 +157,10 @@ plot(is_samples[,2], is_samples[,3])
 
 ## @knitr schools-gibbs
 
+library(nimble)
+
+# simulate parameter and data values rather than use a real dataset,
+# so we can look at MCMC behavior under different situations
 set.seed(1)
 J <- 8
 n <- rep(40, J)
@@ -163,6 +170,7 @@ mu <- 1
 y <- matrix(0, nrow = J, ncol = max(n))
 theta <- rnorm(J, mu, tau)
 
+# simulating observations 
 for(j in 1:J)
     y[j, 1:n[j]] <- rnorm(n[j], theta[j], sigma)
 
@@ -211,6 +219,9 @@ cor(tau[100:1000], theta1[100:1000])
 
 ## @knitr bliss-mh
 
+w <- bliss$w
+y <- bliss$y
+n <- bliss$n
 
 dloggamma <- nimbleFunction(
     run = function(x = double(0), a = double(0), b = double(0),
