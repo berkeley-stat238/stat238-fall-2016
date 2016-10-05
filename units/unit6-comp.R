@@ -159,13 +159,17 @@ plot(is_samples[,2], is_samples[,3])
 
 library(nimble)
 
+#####################################################################
+###### IGNORE THE MAN BEHIND THE CURTAIN ############################
+#####################################################################
 # simulate parameter and data values rather than use a real dataset,
 # so we can look at MCMC behavior under different situations
+
 set.seed(1)
 J <- 8
 n <- rep(40, J)
 sigma <- 5
-tau <- 5  # 0.5 is case where mixing is not good
+tau <- 0.5 # 5 is case where mixing is good  # 0.5 is case where mixing is not good
 mu <- 1
 y <- matrix(0, nrow = J, ncol = max(n))
 theta <- rnorm(J, mu, tau)
@@ -174,6 +178,12 @@ theta <- rnorm(J, mu, tau)
 for(j in 1:J)
     y[j, 1:n[j]] <- rnorm(n[j], theta[j], sigma)
 
+#####################################################################
+#####################################################################
+#####################################################################
+
+# BUGS code to specify the model
+#  this is not R code!!
 code <- nimbleCode({
     itau2 ~ dgamma(a_tau, b_tau)
     isigma2 ~ dgamma(a_sigma, b_sigma)
@@ -186,21 +196,24 @@ code <- nimbleCode({
 })
 
 eps = .001
-m <- nimbleModel(code, data = list(y = y),
-                 constants = list(n = n, J = J, a_tau = eps,
-                                  b_tau = eps, a_sigma = eps, b_sigma =eps),
+m <- nimbleModel(code,
+                 data = list(y = y),
+                 constants = list(n = n, J = J, a_tau = eps, b_tau = eps,
+                                  a_sigma = eps, b_sigma =eps),
                  inits = list(itau2 = 1/8, isigma2 =1/8,
                               theta = rep(0, J), mu = 0))
 
-
+# MCMC configuration (choice of samplers)
 conf <- configureMCMC(m, monitors = c('itau2', 'isigma2', 'mu',
                                       'theta'))
+conf$getSamplers()
 
-cm <- compileNimble(m)
-mcmc <- buildMCMC(conf)
-cmcmc <- compileNimble(mcmc, project = m)
-cmcmc$run(10000)
+cm <- compileNimble(m)  # compiled version of model
+mcmc <- buildMCMC(conf) # MCMC algorithm in R
+cmcmc <- compileNimble(mcmc, project = m) # compiled version of MCMC
+cmcmc$run(1000)
 
+# MCMC samples
 smp <- as.matrix(cmcmc$mvSamples)
 
 sigma <- sqrt(1/smp[ , 'isigma2'])
@@ -216,6 +229,10 @@ ts.plot(theta1)
 plot(tau, theta1)
 
 cor(tau[100:1000], theta1[100:1000])
+
+# compare to starting with dispersed theta values 
+
+# compare to data generated with tau=0.5
 
 ## @knitr bliss-mh
 
@@ -236,7 +253,7 @@ dloggamma <- nimbleFunction(
 rloggamma <- nimbleFunction(
     run = function(n = integer(0), a = double(0), b = double(0)) {
         returnType(double(0))
-        if(n != 1) print("rloggamma only allows n = 1; using n = 1.")
+        stop()  # in case something tries to use this function
         return(0)
     })
 
@@ -254,7 +271,7 @@ dlogsqrtIG <- nimbleFunction(
 rlogsqrtIG <- nimbleFunction(
     run = function(n = integer(0), a = double(0), b = double(0)) {
         returnType(double(0))
-        if(n != 1) print("rlogsqrtIG only allows n = 1; using n = 1.")
+        stop()   # in case something tries to use this function
         return(0)
     })
 
@@ -386,9 +403,9 @@ par(mfrow = c(2,3))
 ts.plot(smpA1[ , 'mu'])
 ts.plot(smpA1[ , 'logsigma'])
 ts.plot(smpA1[ , 'logm1'])
-ts.plot(smpB[ , 'mu'])
-ts.plot(smpB[ , 'logsigma'])
-ts.plot(smpB[ , 'logm1'])
+ts.plot(smpB1[ , 'mu'])
+ts.plot(smpB1[ , 'logsigma'])
+ts.plot(smpB1[ , 'logm1'])
 
 # effective sample size
 nonBurn <- 2001:nIts   # note not needed for 2nd set as it started 'warmed up'
@@ -396,11 +413,11 @@ nonBurn <- 2001:nIts   # note not needed for 2nd set as it started 'warmed up'
 
 library(coda)
 apply(smpA1[nonBurn, ], 2, effectiveSize)
-apply(smpB[nonBurn, ], 2, effectiveSize)
+apply(smpB1[nonBurn, ], 2, effectiveSize)
 
 # ACF
 apply(smpA1[nonBurn, ], 2, acf)
-apply(smpB[nonBurn, ], 2, acf)
+apply(smpB1[nonBurn, ], 2, acf)
 
 # potential scale reduction factor (Gelman-Rubin)
 firstHalf <- 2001:3000
@@ -422,9 +439,19 @@ gelman.diag(mcmcList)  # better
 
 conf <- configureMCMC(m)
 conf$getSamplers()
+conf$removeSamplers(params)
+conf$addSampler(params, type = 'RW_block',
+                control = list(adaptive = FALSE, scale = 1,
+                               propCov = propCov))
+mcmc <- buildMCMC(conf)
+cmcmc <- compileNimble(mcmc, project = m, resetFunctions = TRUE)
+
+conf <- configureMCMC(m)
+conf$getSamplers()
 
 mcmc <- buildMCMC(conf)
 cmcmc <- compileNimble(mcmc, project = m, resetFunctions = TRUE)
+
 # allow time for adaptation
 nIts <- 5000
 cmcmc$run(nIts)
