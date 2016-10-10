@@ -240,6 +240,8 @@ w <- bliss$w
 y <- bliss$y
 n <- bliss$n
 
+hypers <- list(a0 = .25, b0 = .25, c0 = 2, d0 = 10, e0 = 2, f0 = .001)
+
 dloggamma <- nimbleFunction(
     run = function(x = double(0), a = double(0), b = double(0),
         log = integer(0, default = 0)) {
@@ -302,6 +304,9 @@ m <- nimbleModel(code, data = list(w = w, y = y),
 
 params <- c('mu','logsigma','logm1')
 
+# set up a full Metropolis sampler on all parameters at once
+# (default is univariate Metropolis samplers on each parameter, i.e.,
+# Metropolis within Gibbs)
 conf <- configureMCMC(m)
 conf$getSamplers()
 conf$removeSamplers(params)
@@ -328,9 +333,9 @@ plot(smp[ , 'mu'], smp[ , 'logm1'])
 plot(smp[ , 'logsigma'], smp[ , 'logm1'])
 
 # save for later for convergence assessment
-cmA <- cm
-cmcmcA <- cmcmc
-smpA1 <- smp[ , params] 
+cm_uncor <- cm
+cmcmc_uncor <- cmcmc
+smp_uncor1 <- smp[ , params] 
 
 
 ## @knitr bliss-mh-corr
@@ -374,64 +379,9 @@ mean(smp_pdose)
 sd(smp_pdose)
 
 # save for later for convergence assessment
-cmB <- cm
-cmcmcB <- cmcmc
-smpB1 <- smp[ , params]
-
-## @knitr bliss-conv
-
-# let's re-run our two samplers with multiple starting points
-
-# different starting values 
-
-inits <- list(mu = 1.5, logsigma = -2, logm1 = 1)
-cmA$setInits(inits)
-
-set.seed(0)
-cmcmcA$run(nIts)
-smpA2 <- as.matrix(cmcmcA$mvSamples)[ , params]
-
-cmB$setInits(inits)
-
-set.seed(0)
-cmcmcB$run(nIts)
-smpB2 <- as.matrix(cmcmcB$mvSamples)[ , params]
-
-# traceplots
-
-par(mfrow = c(2,3))
-ts.plot(smpA1[ , 'mu'])
-ts.plot(smpA1[ , 'logsigma'])
-ts.plot(smpA1[ , 'logm1'])
-ts.plot(smpB1[ , 'mu'])
-ts.plot(smpB1[ , 'logsigma'])
-ts.plot(smpB1[ , 'logm1'])
-
-# effective sample size
-nonBurn <- 2001:nIts   # note not needed for 2nd set as it started 'warmed up'
-# but apply to both for comparability
-
-library(coda)
-apply(smpA1[nonBurn, ], 2, effectiveSize)
-apply(smpB1[nonBurn, ], 2, effectiveSize)
-
-# ACF
-apply(smpA1[nonBurn, ], 2, acf)
-apply(smpB1[nonBurn, ], 2, acf)
-
-# potential scale reduction factor (Gelman-Rubin)
-firstHalf <- 2001:3000
-secondHalf <- 3001:4000
-mcmcList <- mcmc.list(as.mcmc(smpA1[firstHalf, ]), as.mcmc(smpA1[secondHalf, ]),
-                      as.mcmc(smpA2[firstHalf, ]), as.mcmc(smpA2[secondHalf, ]))
-plot(mcmcList)
-
-                      
-gelman.diag(mcmcList)  # not good!
-
-mcmcList <- mcmc.list(as.mcmc(smpB1[firstHalf, ]), as.mcmc(smpB1[secondHalf, ]),
-                      as.mcmc(smpB2[firstHalf, ]), as.mcmc(smpB2[secondHalf, ]))
-gelman.diag(mcmcList)  # better
+cm_cor <- cm
+cmcmc_cor <- cmcmc
+smp_cor1 <- smp[ , params]
 
 ## @knitr bliss-mh-adaptive
 
@@ -439,21 +389,10 @@ gelman.diag(mcmcList)  # better
 
 conf <- configureMCMC(m)
 conf$getSamplers()
-conf$removeSamplers(params)
-conf$addSampler(params, type = 'RW_block',
-                control = list(adaptive = FALSE, scale = 1,
-                               propCov = propCov))
-mcmc <- buildMCMC(conf)
-cmcmc <- compileNimble(mcmc, project = m, resetFunctions = TRUE)
-
-conf <- configureMCMC(m)
-conf$getSamplers()
 
 mcmc <- buildMCMC(conf)
 cmcmc <- compileNimble(mcmc, project = m, resetFunctions = TRUE)
 
-# allow time for adaptation
-nIts <- 5000
 cmcmc$run(nIts)
 
 smp <- as.matrix(cmcmc$mvSamples)
@@ -482,8 +421,7 @@ conf$addSampler(params, type = 'RW_block',
 
 mcmc <- buildMCMC(conf)
 cmcmc <- compileNimble(mcmc, project = m, resetFunctions = TRUE)
-# allow time for adaptation
-nIts <- 5000
+
 cmcmc$run(nIts)
 
 smp <- as.matrix(cmcmc$mvSamples)
@@ -498,6 +436,65 @@ plot(smp[ , 'logsigma'], smp[ , 'logm1'])
 
 # acceptance rate:
 mean(smp[2001:nIts,1]!=smp[2000:(nIts-1),1])
+
+
+## @knitr bliss-conv
+
+library(coda)
+
+# let's re-run our two samplers with multiple starting points
+
+# different starting values 
+
+inits <- list(mu = 1.5, logsigma = -2, logm1 = 1)
+cm_uncor$setInits(inits)
+
+set.seed(0)
+cmcmc_uncor$run(nIts)
+smp_uncor2 <- as.matrix(cmcmc_uncor$mvSamples)[ , params]
+
+cm_cor$setInits(inits)
+
+set.seed(0)
+cmcmc_cor$run(nIts)
+smp_cor2 <- as.matrix(cmcmc_cor$mvSamples)[ , params]
+
+# traceplots
+
+par(mfrow = c(2,3))
+ts.plot(smp_uncor1[ , 'mu'])
+ts.plot(smp_uncor1[ , 'logsigma'])
+ts.plot(smp_uncor1[ , 'logm1'])
+ts.plot(smp_cor1[ , 'mu'])
+ts.plot(smp_cor1[ , 'logsigma'])
+ts.plot(smp_cor1[ , 'logm1'])
+
+# effective sample size
+nonBurn <- 2001:nIts   # note not needed for 2nd set as it started 'warmed up'
+# but apply to both for comparability
+apply(smp_uncor1[nonBurn, ], 2, effectiveSize)
+apply(smp_cor1[nonBurn, ], 2, effectiveSize)
+
+# ACF
+tmp <- apply(smp_uncor1[nonBurn, ], 2, acf)
+tmp <- apply(smp_cor1[nonBurn, ], 2, acf)
+
+tmp <- apply(smp_uncor1[nonBurn, ], 2, acf, lag.max = 500)
+tmp <- apply(smp_cor1[nonBurn, ], 2, acf, lag.max = 500)
+
+# potential scale reduction factor (Gelman-Rubin)
+firstHalf <- 2001:3000
+secondHalf <- 3001:4000
+mcmcList <- mcmc.list(as.mcmc(smp_uncor1[firstHalf, ]), as.mcmc(smp_uncor1[secondHalf, ]),
+                      as.mcmc(smp_uncor2[firstHalf, ]), as.mcmc(smp_uncor2[secondHalf, ]))
+plot(mcmcList)
+
+                      
+gelman.diag(mcmcList)  # not good!
+
+mcmcList <- mcmc.list(as.mcmc(smp_cor1[firstHalf, ]), as.mcmc(smp_cor1[secondHalf, ]),
+                      as.mcmc(smp_cor2[firstHalf, ]), as.mcmc(smp_cor2[secondHalf, ]))
+gelman.diag(mcmcList)  # better
 
 
 ## @knitr schools-reparam
