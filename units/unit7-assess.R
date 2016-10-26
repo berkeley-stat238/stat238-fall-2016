@@ -9,6 +9,8 @@ J <- length(y)
 
 ## "non-informative" IG priors
 
+## assess sensitivity to different IG priors
+
 codeIG <- nimbleCode({
     for(j in 1:J) {
         y[j] ~ dnorm(theta[j], sd = sigma[j])
@@ -40,19 +42,21 @@ for(prior in 1:2) {
     smpIG[[prior]] <- as.matrix(cmcmcIG[[prior]]$mvSamples)[(burnin+1):nIts, ]
 }
 
-tau <- seq(0, 30, length = 1000)
+tau <- seq(0, 30, length = 100000)
+# IG density for tau^2 translated to density for tau
 dtau <- function(tau, eps) {
     alpha <- beta <- eps
     return(exp(log(2) + log(tau) + alpha*log(beta) - lgamma(alpha) -(alpha+1)*log(tau^2) - beta / tau^2))
 }
 
+
 par(mfrow = c(2, 2))
 hist(smpIG[[1]][ , 'tau'], xlim = c(0, 30), breaks = 30, main = "IG(1,1)",
      xlab = expression(tau), probability = TRUE)
 lines(tau, sapply(tau, dtau, 1))
-hist(smpIG[[2]][ , 'tau'], xlim = c(0, 30), breaks = 30, main = "IG(.001, .001)",
+hist(smpIG[[2]][ , 'tau'], xlim = c(0, 30), breaks = 60, main = "IG(.001, .001)",
      xlab = expression(tau), probability = TRUE)
-# why is BDA Fig. 5.9a showing different result?
+# why is BDA Fig. 5.9a showing different result? also, my density doesn't appear to integrate to 1... 
 lines(tau, sapply(tau, dtau, .001))
 ts.plot(smpIG[[1]][ , 'tau'], main = "IG(1,1)",
      ylab = expression(tau))
@@ -61,6 +65,7 @@ ts.plot(smpIG[[2]][ , 'tau'], main = "IG(.001, .001)",
 
 ## state-of-the-art non-informative priors
 
+## assess sensitivity to uniform and half-t priors for tau
 codeGelman <- nimbleCode({
     for(j in 1:J) {
         y[j] ~ dnorm(theta[j], sd = sigma[j])
@@ -92,19 +97,30 @@ for(prior in 1:2) {
     smpGelman[[prior]] <- as.matrix(cmcmcGelman[[prior]]$mvSamples)[(burnin+1):nIts, ]
 }
 
-par(mfrow = c(2, 2))
+par(mfrow = c(3, 2))
 hist(smpGelman[[1]][ , 'tau'], xlim = c(0, 30), breaks = 30, main = "uniform",
      xlab = expression(tau))
 hist(smpGelman[[2]][ , 'tau'], xlim = c(0, 30), breaks = 30, main = "half-t",
      xlab = expression(tau))
 ts.plot(smpGelman[[1]][ , 'tau'], main = "uniform",
-     ylab = expression(tau))
+     ylab = expression(tau), ylim = c(0, 50))
 ts.plot(smpGelman[[2]][ , 'tau'], main = "half-t",
-     ylab = expression(tau))
+     ylab = expression(tau), ylim = c(0, 50))
+# sensitivity of a parameter we might specifically care about?
+hist(smpGelman[[1]][ , 'mu'], xlim = c(0, 30), breaks = 60,
+     main = "mu posterior with uniform on tau",
+     xlab = expression(mu))
+hist(smpGelman[[2]][ , 'mu'], xlim = c(0, 30), breaks = 30, main = "mu posterior with half-t on tau",
+     xlab = expression(mu))
+
+quantile(smpGelman[[1]][ , 'mu'], c(.025, .5, .975))
+quantile(smpGelman[[2]][ , 'mu'], c(.025, .5, .975))
+
+
 
 ## @knitr schools-hyperprior-analytic
 
-# check the result for what mode is
+# check the result for what mode is using our gridded marginal for tau
 dtau <- function(tau, y, sigma, unif = TRUE) {
     vInvHat <- sum(1 / (sigma^2 + tau^2))
     muHat <- sum(y/(sigma^2 + tau^2)) / vInvHat
@@ -118,6 +134,16 @@ tau <-  seq(0,50,len=200)
 plot(tau, sapply(tau, dtau, y, sigma, unif = FALSE), type = 'l')
 lines(tau, sapply(tau, dtau, y, sigma, unif = TRUE), lty = 2)
 legend('topright', legend = c('half-t', 'uniform'), lty = 1:2)
+
+# normalized
+d1 <- sapply(tau, dtau, y, sigma, unif = FALSE)
+plot(tau, d1/sum(d1), type = 'l')
+d2 <- sapply(tau, dtau, y, sigma, unif = TRUE)
+lines(tau, d2/sum(d2), lty = 2)
+legend('topright', legend = c('half-t', 'uniform'), lty = 1:2)
+
+
+## @knitr jags-comparison
 
 ## jags comparison
 
@@ -142,6 +168,8 @@ ts.plot(out.mcmc[,'tau'])
 hist(out.mcmc[,'tau'],breaks=30)
 
 ## @knitr schools-randomDist
+
+## assess sensitivity to normality assumption on the random effects
 
 codeGelmanT <- nimbleCode({
     for(j in 1:J) {
@@ -181,6 +209,7 @@ for(i in 1:9)
 
 ## @knitr schools-postpred-check
 
+## posterior-predictive checks of random effects distribution
 
 # somewhat inefficient to do this as part of the MCMC vs. post-processing
 
@@ -263,6 +292,9 @@ py10000 <- integrate(joint_ytau, 0, b, y, sigma, mu0, omega2, b)
 b <- 500
 py100b500 <- integrate(joint_ytau, 0, b, y, sigma, mu0, omega2, b)
 
+# could actually consider different priors as different models
+# and use the BF to compare them
+
 # BF for 1 vs 10
 py1$value / py10$value
 
@@ -273,6 +305,7 @@ py1$value / py100$value
 ## @knitr schools-bayesFactor-computation
 
 # pretend integrals can't be done in closed-form
+# and use the approach of sampling from the prior
 
 K <- 100000
 mu0 = 0
