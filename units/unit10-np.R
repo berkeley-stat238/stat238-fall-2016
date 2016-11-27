@@ -76,6 +76,8 @@ for(i in 1:9){
 gr <- 100
 xs <- seq(0, 1, length = gr)
 
+# we'll use Matern correlation not exponential as exponential gives very wiggly sample paths
+# note that with nu=0.5, the Matern is the same as the exponential correlation
 maternCorr <- function(dist, rho, nu) {
     const <- -lgamma(nu)-(nu-1)*log(2)
     tmp <- exp(const+nu*log(2.0*sqrt(nu)*dist/rho)+log(besselK(2.0*sqrt(nu)*dist/rho,nu)))
@@ -92,6 +94,7 @@ nu <- c(.5, 4)
 library(fields)
 dists <- rdist(xs)
 
+# covariance matrices for two different sets of rho and nu
 C <- L <- list()
 for(i in 1:2) {
     C[[i]] <- tau^2 * maternCorr(dists, rho[i], nu[i])
@@ -117,7 +120,10 @@ for(j in 2:ncurves)
 
 ## @knitr finite-mixture-H
 
-library(nimble)
+# let's look at number of important components using BDA-recommended (page 536)
+# prior on mixture weights
+
+library(nimble)  # nimble provides the rdirch function used here
 m <- 1000
 H <- 10
 alpha0 <- 1
@@ -134,8 +140,7 @@ round(smp[1, ], 3)
 round(smp[2, ], 3)
 
 
-
-## @knitr fit-dpm
+## @knitr setup-mixture
 
 set.seed(0)
 pi <- c(.4, .3, .2, .05, .03, .02)
@@ -151,16 +156,32 @@ sigmas <- sigma[c]
 
 y <- rnorm(n, mus, sigmas)
 
+doSmall <- FALSE
+doTiny <- FALSE
+
+if(doSmall) {
+    n <- 500
+    yFull <- y
+    y <- y[1:n]
+}
+if(doTiny) {
+    n <- 50
+    yFull <- y
+    y <- y[1:n]
+}
+
 # hist(y)
 
 
 ## @knitr fit-finite-mixture
 
+
 deregisterDistributions('dmixN')
 
 dmixN <- nimbleFunction(run = function(x = double(1),
                                        pi = double(1),
-                                       mu = double(1), sigma = double(1), log = integer(0, default = 0)) {
+                                       mu = double(1), sigma = double(1),
+                                       log = integer(0, default = 0)) {
     returnType(double(0))
     H <- length(pi)
     n <- length(x)
@@ -187,23 +208,28 @@ rmixN <- nimbleFunction(run = function(n = integer(0), pi = double(1),
 
 code <- nimbleCode({
     y[1:n] ~ dmixN(pi[1:H], mu[1:H], sigma[1:H])
-    pi[1:H] ~ ddirch(alpha[1:H])
+    # pi[1:H] ~ ddirch(alpha[1:H])
     for(h in 1:H) {
         alpha[h] <- alpha0 / H
         mu[h] ~ dnorm(mu0, sd = sigma0)
         sigma[h] ~ dlnorm(logmean, sdlog = logsigma0)
+        piLatent[h] ~ dgamma(alpha[h], 1)
+        pi[h] <- piLatent[h] / piLatentSum
     }
+    piLatentSum <- sum(piLatent[1:H])
     mu0 ~ dnorm(0, sd = 3)
     sigma0 ~ dunif(0, 5)
     logmean ~ dnorm(0, sd = 2)
     logsigma0 ~ dunif(0, 2)
     alpha0 ~ dgamma(mean = 1, sd = 4)
+
 })
 
-Hmax <- 25
+set.seed(0)
+Hmax <- 15
 model <- nimbleModel(code, data = list(y = y),
                      constants = list(n = n, H = Hmax),
-                     inits = list(pi = rep(1/Hmax, Hmax),
+                     inits = list(piLatent = rep(1, Hmax),
                                   alpha0 = 1,
                                   mu = rnorm(Hmax, 0, 5),
                                   sigma = runif(Hmax, 0, 10),
@@ -215,11 +241,175 @@ model <- nimbleModel(code, data = list(y = y),
 
 cmodel <- compileNimble(model)
 
-mcmc <- buildMCMC(model)
+mcmc <- buildMCMC(model, monitors = c('pi', 'mu', 'sigma', 'mu0',
+                                      'sigma0', 'logmean', 'logsigma0', 'alpha0'))
 cmcmc <- compileNimble(mcmc, project = model)
 
-cmcmc$run(1000)
+set.seed(0)
+cmcmc$run(5000)
+
+
+
+smp <- as.matrix(cmcmc$mvSamples)
+save(smp, file = paste0('smpFinite', n, '.Rda'))
+
+n <- 500
+load(paste0('smpFinite', n, '.Rda'))
+y <- yFull[1:n]
+
+piCols <- grep("^pi.*\\]$", dimnames(smp)[[2]])
+muCols <- grep("^mu.*\\]$", dimnames(smp)[[2]])
+sigmaCols <- grep("^sigma.*\\]$", dimnames(smp)[[2]])
+
+
+ts.plot(smp[, 'alpha0'])
+par(mfrow = c(3,5))
+for(i in piCols)
+    ts.plot(smp[ , i])
+
+par(mfrow = c(3,5))
+for(i in muCols)
+    ts.plot(smp[, i])
+
+par(mfrow = c(3,5))
+for(i in sigmaCols)
+    ts.plot(smp[, i])
+
+
+# look at density values on a grid of x values
+gr <-  seq(-10, 10, length = 100)
+
+dmixNcalc <- nimbleFunction(run = function(x = double(1),
+                                       pi = double(2),
+                                       mu = double(2), sigma = double(2),
+                                       log = integer(0, default = 0)) {
+    returnType(double(2))
+    nIts <- dim(pi)[1]
+    nGrid <- length(x)
+    out <- matrix(nrow = nIts, ncol = nGrid)
+    H <- dim(pi)[2]
+
+    for(i in 1:nIts)
+        for(j in 1:nGrid) {
+            dens <- 0
+            for(h in 1:H) 
+                dens <- dens + pi[i, h] * dnorm(x[j], mu[i, h], sigma[i, h], log = FALSE)
+            out[i, j] <- dens
+        }
+    return(out)
+})
+
+cdmixNcalc <- compileNimble(dmixNcalc)
+
+smpDens <- cdmixNcalc(gr, smp[ , piCols], smp[ , muCols], smp[ , sigmaCols])
+
+trueDens <- cdmixNcalc(gr, matrix(pi, nrow = 1), matrix(mu, nrow = 1),
+                       matrix(sigma, nrow = 1))
+
+par(mfrow = c(2,5))
+subgrid <- seq(1, length(gr), by = 10)
+for(j in subgrid)
+    ts.plot(smpDens[ , j])
+
+par(mfrow = c(1,1))
+postBurn <- 501:nIts
+hist(y, probability = TRUE, ncl = 40)
+for(i in sample(postBurn, 10))
+    lines(gr, smpDens[i, ], col = i)
+lines(gr, colMeans(smpDens), lwd = 2)
+lines(gr, trueDens, lwd = 2, lty = 2)
+
+## @knitr fit-truncated-DPM
+
+code <- nimbleCode({
+    y[1:n] ~ dmixN(pi[1:H], mu[1:H], sigma[1:H])
+
+    pi[1] <- V[1]
+    prodterm[1] <- 1
+    for(h in 2:(H-1)) {
+        prodterm[h] <- prodterm[h-1] * (1-V[h-1]) 
+        pi[h] <- V[h] * prodterm[h]
+    }
+    pi[H] <- 1 - sum(pi[1:(H-1)])
+    for(h in 1:H) {
+        V[h] ~ dbeta(1, alpha)
+        mu[h] ~ dnorm(mu0, sd = sigma0)
+        sigma[h] ~ dlnorm(logmean, sdlog = logsigma0)
+    }
+    mu0 ~ dnorm(0, sd = 3)
+    sigma0 ~ dunif(0, 5)
+    logmean ~ dnorm(0, sd = 2)
+    logsigma0 ~ dunif(0, 2)
+    
+    alpha ~ dgamma(1, 0.25)
+})
+
+Hmax <- 15
+alpha <- 2
+set.seed(0)
+V <- rbeta(Hmax, 1, alpha)
+
+model <- nimbleModel(code, data = list(y = y),
+                     constants = list(n = n, H = Hmax),
+                     inits = list(V = V,
+                                  alpha = 2,
+                                  mu = rnorm(Hmax, 0, 5),
+                                  sigma = runif(Hmax, 0, 10),
+                                  mu0 = 0,
+                                  sigma0 = 3,
+                                  logmean = 0,
+                                  logsigma0 = 1
+                                  ))
+
+cmodel <- compileNimble(model)
+
+mcmc <- buildMCMC(model, monitors = c('pi', 'mu', 'sigma', 'alpha',
+                                      'mu0', 'sigma0', 'logmean', 'logsigma0'))
+cmcmc <- compileNimble(mcmc, project = model)
+
+nIts <- 5000
+set.seed(0)
+cmcmc$run(nIts)
 
 smp <- as.matrix(cmcmc$mvSamples)
 
-                               
+save(smp, file = paste0('smpDPM', n, '.Rda'))
+
+n <- 500
+load(paste0('smpDPM', n, '.Rda'))
+y <- yFull[1:n]
+
+piCols <- grep("^pi.*\\]$", dimnames(smp)[[2]])
+muCols <- grep("^mu.*\\]$", dimnames(smp)[[2]])
+sigmaCols <- grep("^sigma.*\\]$", dimnames(smp)[[2]])
+
+ts.plot(smp[ , 'alpha'])
+par(mfrow = c(3,5))
+for(i in piCols)
+    ts.plot(smp[ , i])
+
+par(mfrow = c(3,5))
+for(i in muCols)
+    ts.plot(smp[ , i])
+
+par(mfrow = c(3,5))
+for(i in sigmaCols)
+    ts.plot(smp[ , i])
+
+smpDens <- cdmixNcalc(gr, smp[ , piCols], smp[ , muCols], smp[ , sigmaCols])
+
+trueDens <- cdmixNcalc(gr, matrix(pi, nrow = 1), matrix(mu, nrow = 1),
+                       matrix(sigma, nrow = 1))
+
+par(mfrow = c(2,5))
+subgrid <- seq(1, length(gr), by = 10)
+for(j in subgrid)
+    ts.plot(smpDens[ , j])
+
+par(mfrow = c(1,1))
+hist(y, probability = TRUE, ncl = 40)
+postBurn <- 501:nIts
+for(i in sample(postBurn, 10))
+    lines(gr, smpDens[i, ], col = i)
+lines(gr, colMeans(smpDens), lwd = 2)      
+lines(gr, trueDens, lwd = 2, lty = 2)
