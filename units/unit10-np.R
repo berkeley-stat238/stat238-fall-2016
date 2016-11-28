@@ -123,13 +123,15 @@ set.seed(0)
 n <- 50
 x <- seq(0, 1, len = n)
 f <- sin(2*pi*x)
-plot(x,f)
-sigma <- 1
 
+sigma <- 1
 y <- f + rnorm(n, f, sigma)
+
 plot(x, y)
+lines(x, f)
 
 library(fields)
+library(nimble)
 
 code <- nimbleCode({
     for(i in 1:n)
@@ -167,6 +169,12 @@ postburn <- 40001:nIts
 fCols <- grep("^f\\[.*\\]$", dimnames(smp)[[2]])
               
 fMean <- apply(smp[postburn, fCols], 2, mean)
+
+lines(x, fMean, col = 'red')
+legend('topleft', lty = rep(1, 2), col = c('black','red'),
+       legend = c('truth', 'fitted'))
+
+                 
 
 
 ## @knitr finite-mixture-H
