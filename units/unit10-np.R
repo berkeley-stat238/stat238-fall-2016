@@ -125,7 +125,7 @@ x <- seq(0, 1, len = n)
 f <- sin(2*pi*x)
 
 sigma <- 1
-y <- f + rnorm(n, f, sigma)
+y <- rnorm(n, f, sigma)
 
 plot(x, y)
 lines(x, f)
