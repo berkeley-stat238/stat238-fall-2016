@@ -71,7 +71,7 @@ for(i in 1:9){
   text(vals[i], -.15, as.character(round(betas[i], 2)), cex = .8)
 }
 
-## @knitr gp-example
+## @knitr gp-realizations
 
 gr <- 100
 xs <- seq(0, 1, length = gr)
@@ -116,6 +116,57 @@ plot(xs, mu + L[[2]] %*% z[ , 1], type = 'l', ylim = c(-2, 2),
      xlab = 'x', ylab = 'f(x)')
 for(j in 2:ncurves)
     lines(xs, mu + L[[2]] %*% z[ , j], col = j)
+
+## @knitr gp-fit
+
+set.seed(0)
+n <- 50
+x <- seq(0, 1, len = n)
+f <- sin(2*pi*x)
+plot(x,f)
+sigma <- 1
+
+y <- f + rnorm(n, f, sigma)
+plot(x, y)
+
+library(fields)
+
+code <- nimbleCode({
+    for(i in 1:n)
+        y[i] ~ dnorm(f[i], sd = sigma)
+    f[1:n] ~ dmnorm(mn[1:n], cov = C[1:n, 1:n])
+    mn[1:n] <- mu*ones[1:n]
+    sigma ~ dunif(0, 100)
+    mu ~ dnorm(0, 0.0001)
+    # exponential covariance probably induces functions that are too wiggly
+    # but try it anyway
+    C[1:n, 1:n] <- tau^2 * exp(-dists[1:n, 1:n] / rho)
+    rho ~ dunif(0, 2)
+    tau ~ dunif(0, 10)
+})
+
+m <- nimbleModel(code, constants = list(n = n,
+                                        ones = rep(1, n),
+                                        dists = rdist(x)),
+                                        data = list(y = y),
+                                        inits = list(mu = 0, rho = 0.5, tau = 1, sigma = 0.5))
+
+cm <- compileNimble(m)
+
+conf <- configureMCMC(m, monitors = c('rho', 'tau', 'sigma', 'mu', 'f'))
+mcmc <- buildMCMC(conf)
+cmcmc <- compileNimble(mcmc, project = m)
+
+nIts <- 100000
+
+cmcmc$run(nIts)
+
+smp <- as.matrix(cmcmc$mvSamples)
+
+postburn <- 40001:nIts
+fCols <- grep("^f\\[.*\\]$", dimnames(smp)[[2]])
+              
+fMean <- apply(smp[postburn, fCols], 2, mean)
 
 
 ## @knitr finite-mixture-H
