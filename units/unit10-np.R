@@ -171,7 +171,7 @@ fCols <- grep("^f\\[.*\\]$", dimnames(smp)[[2]])
 fMean <- apply(smp[postburn, fCols], 2, mean)
 
 lines(x, fMean, col = 'red')
-legend('topleft', lty = rep(1, 2), col = c('black','red'),
+legend('topright', lty = rep(1, 2), col = c('black','red'),
        legend = c('truth', 'fitted'))
 
                  
@@ -233,9 +233,6 @@ if(doTiny) {
 
 
 ## @knitr fit-finite-mixture
-
-
-deregisterDistributions('dmixN')
 
 dmixN <- nimbleFunction(run = function(x = double(1),
                                        pi = double(1),
@@ -352,7 +349,8 @@ dmixNcalc <- nimbleFunction(run = function(x = double(1),
         for(j in 1:nGrid) {
             dens <- 0
             for(h in 1:H) 
-                dens <- dens + pi[i, h] * dnorm(x[j], mu[i, h], sigma[i, h], log = FALSE)
+                dens <- dens + pi[i, h] * dnorm(x[j], mu[i, h], sigma[i, h],
+                                                log = FALSE)
             out[i, j] <- dens
         }
     return(out)
